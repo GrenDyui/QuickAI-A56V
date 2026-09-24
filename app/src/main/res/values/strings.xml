@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Quick AI</string>
+    <string name="notification_channel_name">Quick AI</string>
+    <string name="notification_channel_description">Nhập câu hỏi và nhận đáp án bằng Gemini</string>
+    <string name="notification_title">Quick AI • Trả lời nhanh</string>
+    <string name="reply_label">Dán câu hỏi ở đây…</string>
+</resources>
