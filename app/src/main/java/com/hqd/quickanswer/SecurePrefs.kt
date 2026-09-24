@@ -14,7 +14,7 @@ class SecurePrefs(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("secure_settings", Context.MODE_PRIVATE)
 
-    private companion object {
+    private object Keys {
         const val KEY_ALIAS = "quick_ai_master_key_v1"
         const val PREF_API_KEY = "gemini_api_key"
         const val PREF_MODEL = "gemini_model"
@@ -26,30 +26,30 @@ class SecurePrefs(context: Context) {
 
     fun saveApiKey(value: String) {
         if (value.isBlank()) {
-            prefs.edit().remove(PREF_API_KEY).apply()
+            prefs.edit().remove(Keys.PREF_API_KEY).apply()
             return
         }
         val encrypted = encrypt(value)
-        prefs.edit().putString(PREF_API_KEY, encrypted).apply()
+        prefs.edit().putString(Keys.PREF_API_KEY, encrypted).apply()
     }
 
-    fun getApiKey(): String = prefs.getString(PREF_API_KEY, null)?.let(::decrypt).orEmpty()
+    fun getApiKey(): String = prefs.getString(Keys.PREF_API_KEY, null)?.let(::decrypt).orEmpty()
 
     fun saveModel(value: String) {
-        prefs.edit().putString(PREF_MODEL, value.trim().ifBlank { DEFAULT_MODEL }).apply()
+        prefs.edit().putString(Keys.PREF_MODEL, value.trim().ifBlank { DEFAULT_MODEL }).apply()
     }
 
-    fun getModel(): String = prefs.getString(PREF_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL
+    fun getModel(): String = prefs.getString(Keys.PREF_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL
 
     private fun getOrCreateKey(): SecretKey {
         val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        val existing = keyStore.getKey(KEY_ALIAS, null) as? SecretKey
+        val existing = keyStore.getKey(Keys.KEY_ALIAS, null) as? SecretKey
         if (existing != null) return existing
 
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
         generator.init(
             KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
+                Keys.KEY_ALIAS,
                 KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
