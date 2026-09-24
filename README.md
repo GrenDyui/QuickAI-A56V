@@ -13,7 +13,7 @@ This repository is designed for GitHub Actions. Push the project to GitHub, then
 
 ## App flow
 1. Open Quick AI.
-2. Enter Gemini API key and model (default `gemini-3.8-flash`).
+2. Enter Gemini API key and model (default `gemini-3.5-flash-lite`).
 3. Press **LƯU & BẬT TRỢ LÝ**.
 4. Pull down the notification shade.
 5. Tap **Nhập câu hỏi**.
@@ -39,11 +39,16 @@ Sau khi cài bản mới, nếu vẫn không thấy:
 3. Tắt "Tự động tối ưu hóa" cho Quick AI: **Chăm sóc thiết bị → Tự động tối ưu hóa** (One UI có thể ngủ app, làm notification biến mất).
 
 ### Gemini HTTP 503 (Service Unavailable)
-503 là lỗi tạm thời do máy chủ Gemini quá tải ("High Demand"), **không phải do sai model hay API key** (model `gemini-3.8-flash` là model ổn định mới, hợp lệ).
+503 là lỗi tạm thời do máy chủ Gemini quá tải ("High Demand"), **không phải do sai model hay API key** (các model dùng trong app đều là model ổn định, hợp lệ theo [ai.google.dev/gemini-api/docs/models](https://ai.google.dev/gemini-api/docs/models)).
 
-Bản 1.1.0 đã thêm **retry exponential backoff** (thử tối đa 5 lần, delay 1s→2s→4s→8s + jitter) ngay trong `AiClient`, áp dụng cho cả nút TEST lẫn worker nền. Nút TEST giờ sẽ tự thử lại thay vì báo lỗi ngay ở lần 503 đầu tiên.
+Bản 1.2.0 xử lý 503 triệt để trong code:
+- **Model mặc định** đổi sang `gemini-3.5-flash-lite` — ổn định, ít tải hơn `gemini-3.8-flash` (vốn mới ra, hay bị "High Demand"), đủ thông minh cho bài trắc nghiệm A/B/C/D.
+- **Retry exponential backoff** mỗi model: tối đa 3 lần, delay 1s→2s + jitter (theo đúng khuyến nghị của Google: chỉ retry 429/5xx, backoff, jitter, có giới hạn).
+- **Fallback qua nhiều model**: nếu model đang dùng vẫn 503 sau khi đã retry, tự thử model dự phòng (`gemini-3.5-flash`, `gemini-3.6-flash`). Lỗi key sai (400/403) hoặc sai tên model (404) thì **không** fallback — báo luôn để bạn sửa.
 
-Nếu vẫn bị 503 liên tục:
-- Thử model khác ít tải hơn, ví dụ `gemini-3.5-flash-lite` (ô Model trong app).
-- Kiểm tra key chưa bị block/leak ở Google AI Studio.
-- Với free tier, hạn mức thấp → 503 dễ xuất hiện lúc cao điểm, chỉ cần thử lại sau.
+Áp dụng cho cả nút TEST lẫn worker nền (WorkManager). Nút TEST giờ sẽ tự thử lại + đổi model thay vì báo lỗi ngay ở lần 503 đầu tiên.
+
+Nếu vẫn bị 503 liên tục (thường là do free tier bị throttle lúc cao điểm):
+- Bật billing (lên paid tier) ở project Google AI Studio — free tier bị giới hạn RPM thấp nhất, dễ 503 nhất.
+- Kiểm tra key chưa bị block/leak ở [Google AI Studio](https://ai.google.dev/gemini-api/docs/api-keys).
+- Vẫn có thể gõ model khác (vd `gemini-3.8-flash`) vào ô Model; app sẽ thử model đó trước rồi mới dùng dự phòng.

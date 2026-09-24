@@ -81,6 +81,8 @@ class SecurePrefs(context: Context) {
     }
 
     companion object {
-        const val DEFAULT_MODEL = "gemini-3.8-flash"
+        // Stable, least-loaded, free-tier-friendly default. Less prone to "503 High Demand"
+        // than the brand-new gemini-3.8-flash. If it ever fails, AiClient falls back further.
+        const val DEFAULT_MODEL = "gemini-3.5-flash-lite"
     }
 }

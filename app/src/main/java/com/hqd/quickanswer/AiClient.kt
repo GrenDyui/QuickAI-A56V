@@ -11,10 +11,17 @@ import kotlin.random.Random
 object AiClient {
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
 
-    // Exponential backoff for transient errors (503 UNAVAILABLE / 429 / timeout).
-    // Google's guidance: retry up to ~4 times, start ~1s, double each time, add jitter.
-    private const val MAX_ATTEMPTS = 5 // 1 initial + 4 retries
-    private val BACKOFF_MS = longArrayOf(1_000, 2_000, 4_000, 8_000)
+    // Resilience settings.
+    // - Per model: retry transient errors (503/429/timeout) with exponential backoff.
+    // - Across models: if the chosen model stays unavailable, fall back to known-stable,
+    //   less-loaded models so a "503 High Demand" on one endpoint doesn't kill the request.
+    // Google's guidance: retry on 429/5xx, exponential backoff, add jitter, set a max.
+    private const val MAX_ATTEMPTS = 3            // attempts per model
+    private const val MAX_MODELS_TRIED = 3        // primary + up to 2 fallbacks
+    private val BACKOFF_MS = longArrayOf(1_000, 2_000)
+
+    // Stable, available-to-new-projects models (per ai.google.dev/gemini-api/docs/models).
+    val FALLBACK_MODELS = listOf("gemini-3.5-flash", "gemini-3.6-flash")
 
     val SYSTEM_PROMPT = """
 You are Quick AI, a fast and careful academic answer extractor.
@@ -33,31 +40,46 @@ Do not provide chain-of-thought or long explanations. A one-line note is allowed
     class PermanentException(message: String) : IOException(message)
 
     /**
-     * Calls Gemini, retrying transient errors (503 / 429 / timeout) with exponential backoff
-     * before surfacing a failure. This makes the TEST button and the background worker resilient
-     * to the "503 Service Unavailable / High Demand" responses that Gemini returns under load.
+     * Calls Gemini. Retries transient errors (503 / 429 / timeout) per model with backoff,
+     * and on persistent transient failure falls back to other stable models.
+     * A bad API key / bad request (PermanentException) propagates immediately — no fallback.
      */
     fun generateAnswer(apiKey: String, model: String, userText: String): String {
         require(apiKey.isNotBlank()) { "Chưa có Gemini API key." }
         require(userText.isNotBlank()) { "Nội dung câu hỏi đang trống." }
 
-        val safeModel = model.trim().ifBlank { SecurePrefs.DEFAULT_MODEL }
-        var lastError: IOException? = null
+        val requested = model.trim().ifBlank { SecurePrefs.DEFAULT_MODEL }
+        val candidates = (listOf(requested, SecurePrefs.DEFAULT_MODEL) + FALLBACK_MODELS)
+            .distinct()
+            .take(MAX_MODELS_TRIED)
 
+        var lastError: IOException? = null
+        for (m in candidates) {
+            try {
+                return runWithRetry(apiKey, m, userText)
+            } catch (e: PermanentException) {
+                throw e // bad key / bad request — fallback won't help
+            } catch (e: RetryableException) {
+                lastError = e // transient — try next model
+            }
+        }
+        throw lastError ?: RetryableException("Không gọi được Gemini sau khi thử ${candidates.size} model.")
+    }
+
+    private fun runWithRetry(apiKey: String, model: String, userText: String): String {
+        var lastError: RetryableException? = null
         for (attempt in 1..MAX_ATTEMPTS) {
             try {
-                return doRequest(apiKey, safeModel, userText)
+                return doRequest(apiKey, model, userText)
             } catch (e: RetryableException) {
                 lastError = e
                 if (attempt < MAX_ATTEMPTS) {
                     val base = BACKOFF_MS.getOrElse(attempt - 1) { BACKOFF_MS.last() }
-                    val jitter = Random.nextLong(0, 400) // 0..399ms jitter
-                    Thread.sleep(base + jitter)
+                    Thread.sleep(base + Random.nextLong(0, 400)) // jitter
                 }
             }
-            // PermanentException and any other exception propagate immediately — no retry.
         }
-        throw lastError ?: RetryableException("Gemini không phản hồi sau $MAX_ATTEMPTS lần thử.")
+        throw lastError ?: RetryableException("Gemini $model không phản hồi.")
     }
 
     private fun doRequest(apiKey: String, model: String, userText: String): String {
