@@ -3,11 +3,18 @@ package com.hqd.quickanswer
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URLEncoder
 import java.net.URI
+import kotlin.random.Random
 
 object AiClient {
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
+
+    // Exponential backoff for transient errors (503 UNAVAILABLE / 429 / timeout).
+    // Google's guidance: retry up to ~4 times, start ~1s, double each time, add jitter.
+    private const val MAX_ATTEMPTS = 5 // 1 initial + 4 retries
+    private val BACKOFF_MS = longArrayOf(1_000, 2_000, 4_000, 8_000)
 
     val SYSTEM_PROMPT = """
 You are Quick AI, a fast and careful academic answer extractor.
@@ -25,13 +32,39 @@ Do not provide chain-of-thought or long explanations. A one-line note is allowed
     class RetryableException(message: String) : IOException(message)
     class PermanentException(message: String) : IOException(message)
 
+    /**
+     * Calls Gemini, retrying transient errors (503 / 429 / timeout) with exponential backoff
+     * before surfacing a failure. This makes the TEST button and the background worker resilient
+     * to the "503 Service Unavailable / High Demand" responses that Gemini returns under load.
+     */
     fun generateAnswer(apiKey: String, model: String, userText: String): String {
         require(apiKey.isNotBlank()) { "Chưa có Gemini API key." }
         require(userText.isNotBlank()) { "Nội dung câu hỏi đang trống." }
 
         val safeModel = model.trim().ifBlank { SecurePrefs.DEFAULT_MODEL }
-        val encodedModel = URLEncoder.encode(safeModel, Charsets.UTF_8.name())
-        val url = URI.create("$BASE_URL$encodedModel:generateContent?key=${URLEncoder.encode(apiKey, Charsets.UTF_8.name())}").toURL()
+        var lastError: IOException? = null
+
+        for (attempt in 1..MAX_ATTEMPTS) {
+            try {
+                return doRequest(apiKey, safeModel, userText)
+            } catch (e: RetryableException) {
+                lastError = e
+                if (attempt < MAX_ATTEMPTS) {
+                    val base = BACKOFF_MS.getOrElse(attempt - 1) { BACKOFF_MS.last() }
+                    val jitter = Random.nextLong(0, 400) // 0..399ms jitter
+                    Thread.sleep(base + jitter)
+                }
+            }
+            // PermanentException and any other exception propagate immediately — no retry.
+        }
+        throw lastError ?: RetryableException("Gemini không phản hồi sau $MAX_ATTEMPTS lần thử.")
+    }
+
+    private fun doRequest(apiKey: String, model: String, userText: String): String {
+        val encodedModel = URLEncoder.encode(model, Charsets.UTF_8.name())
+        val url = URI.create(
+            "$BASE_URL$encodedModel:generateContent?key=${URLEncoder.encode(apiKey, Charsets.UTF_8.name())}"
+        ).toURL()
         val body = JSONObject()
             .put("system_instruction", JSONObject().put("parts", org.json.JSONArray().put(JSONObject().put("text", SYSTEM_PROMPT))))
             .put("contents", org.json.JSONArray().put(
@@ -61,15 +94,12 @@ Do not provide chain-of-thought or long explanations. A one-line note is allowed
             val raw = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
 
             if (status == 429 || status >= 500) {
-                throw RetryableException("Gemini HTTP $status")
+                val detail = parseErrorMessage(raw)
+                throw RetryableException(if (detail.isNotBlank()) "Gemini HTTP $status — $detail" else "Gemini HTTP $status")
             }
             if (status !in 200..299) {
-                val message = runCatching {
-                    JSONObject(raw).optJSONObject("error")?.optString("message").orEmpty()
-                }.getOrDefault("")
-                throw PermanentException(
-                    if (message.isNotBlank()) message else "Gemini HTTP $status"
-                )
+                val message = parseErrorMessage(raw)
+                throw PermanentException(if (message.isNotBlank()) message else "Gemini HTTP $status")
             }
 
             val json = JSONObject(raw)
@@ -88,7 +118,7 @@ Do not provide chain-of-thought or long explanations. A one-line note is allowed
                     if (t.isNotBlank()) append(t).append('\n')
                 }
             }.trim().ifBlank { throw PermanentException("Gemini trả về câu trả lời trống.") }
-        } catch (e: java.net.SocketTimeoutException) {
+        } catch (e: SocketTimeoutException) {
             throw RetryableException("Kết nối Gemini quá thời gian.")
         } catch (e: java.net.UnknownHostException) {
             throw RetryableException("Không có Internet hoặc DNS chưa sẵn sàng.")
@@ -96,4 +126,9 @@ Do not provide chain-of-thought or long explanations. A one-line note is allowed
             connection.disconnect()
         }
     }
+
+    private fun parseErrorMessage(raw: String): String =
+        runCatching {
+            JSONObject(raw).optJSONObject("error")?.optString("message").orEmpty()
+        }.getOrDefault("")
 }

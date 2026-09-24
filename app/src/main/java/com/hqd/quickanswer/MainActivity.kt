@@ -100,53 +100,8 @@ class MainActivity : AppCompatActivity() {
             saveApiKey(api)
             saveModel(model)
         }
-
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            // Permission chưa được cấp nên notification sẽ không hiện được.
-            // Xin quyền ngay; showAssistant() sẽ được gọi lại trong onRequestPermissionsResult nếu người dùng đồng ý.
-            Toast.makeText(
-                this,
-                "Đã lưu cài đặt. Cần cấp quyền THÔNG BÁO để bật trợ lý.",
-                Toast.LENGTH_LONG
-            ).show()
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
-            return
-        }
-
-        if (NotificationHelper.showAssistant(this)) {
-            Toast.makeText(this, "Đã lưu và bật Quick AI.", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(
-                this,
-                "Đã lưu cài đặt nhưng thông báo của app đang bị tắt. Vào Cài đặt > Ứng dụng > Quick AI > Thông báo để bật.",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1001) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Người dùng vừa đồng ý cấp quyền: nếu đã có API key thì bật thông báo trợ lý ngay.
-                if (SecurePrefs(this).getApiKey().isNotBlank()) {
-                    NotificationHelper.showAssistant(this)
-                    Toast.makeText(this, "Đã bật Quick AI.", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                Toast.makeText(
-                    this,
-                    "Chưa cấp quyền THÔNG BÁO nên trợ lý không thể hiện thông báo. Vào Cài đặt > Ứng dụng > Quick AI > Thông báo để bật.",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
+        NotificationHelper.showAssistant(this)
+        Toast.makeText(this, "Đã lưu và bật Quick AI.", Toast.LENGTH_SHORT).show()
     }
 
     private fun testApi() {
@@ -157,7 +112,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        Toast.makeText(this, "Đang test…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Đang test… (có tự thử lại nếu gặp 503)", Toast.LENGTH_LONG).show()
         Thread {
             try {
                 val answer = AiClient.generateAnswer(api, model, "2 + 2 bằng bao nhiêu? A. 3 B. 4 C. 5 D. 6")

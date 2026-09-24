@@ -13,17 +13,24 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 
 object NotificationHelper {
-    const val CHANNEL_ID = "quick_ai_channel"
+    // NOTE: importance is LOCKED once a channel is created on Android 8+.
+    // Bumping the versioned ID ensures the new (DEFAULT) importance actually applies
+    // even if the app was previously installed with the LOW-importance v1 channel.
+    const val CHANNEL_ID = "quick_ai_channel_v2"
+    private const val LEGACY_CHANNEL_ID = "quick_ai_channel"
     const val NOTIFICATION_ID = 240903
     const val KEY_TEXT_REPLY = "quick_ai_text"
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(NotificationManager::class.java)
+            // Remove the legacy LOW-importance channel so it doesn't linger as a
+            // disabled/low category in the app's notification settings screen.
+            runCatching { manager.deleteNotificationChannel(LEGACY_CHANNEL_ID) }
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 context.getString(R.string.notification_channel_name),
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = context.getString(R.string.notification_channel_description)
                 setShowBadge(false)
@@ -32,12 +39,11 @@ object NotificationHelper {
         }
     }
 
-    fun showAssistant(context: Context, status: String = "Nhấn “Nhập câu hỏi” để gửi"): Boolean {
+    fun showAssistant(context: Context, status: String = "Nhấn “Nhập câu hỏi” để gửi") {
         ensureChannel(context)
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return false
-        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
+        ) return
 
         val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY)
             .setLabel(context.getString(R.string.reply_label))
@@ -73,7 +79,7 @@ object NotificationHelper {
             .setContentText(status)
             .setStyle(NotificationCompat.BigTextStyle().bigText(status))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
@@ -82,7 +88,6 @@ object NotificationHelper {
             .build()
 
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
-        return true
     }
 
     fun showProcessing(context: Context, questionPreview: String) {

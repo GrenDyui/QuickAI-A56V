@@ -81,6 +81,6 @@ class SecurePrefs(context: Context) {
     }
 
     companion object {
-        const val DEFAULT_MODEL = "gemini-flash-latest"
+        const val DEFAULT_MODEL = "gemini-3.8-flash"
     }
 }
