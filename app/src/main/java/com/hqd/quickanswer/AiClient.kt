@@ -9,7 +9,7 @@ import java.net.URI
 object AiClient {
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
 
-    const val SYSTEM_PROMPT = """
+    val SYSTEM_PROMPT = """
 You are Quick AI, a fast and careful academic answer extractor.
 The user will send one or more questions, often multiple-choice A/B/C/D or a True/False passage.
 Read the full input first. Determine the question boundaries and options, then solve each item.
@@ -54,7 +54,7 @@ Do not provide chain-of-thought or long explanations. A one-line note is allowed
             setRequestProperty("Accept", "application/json")
         }
 
-        try {
+        return try {
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
