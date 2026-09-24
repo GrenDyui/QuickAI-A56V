@@ -32,11 +32,12 @@ object NotificationHelper {
         }
     }
 
-    fun showAssistant(context: Context, status: String = "Nhấn “Nhập câu hỏi” để gửi") {
+    fun showAssistant(context: Context, status: String = "Nhấn “Nhập câu hỏi” để gửi"): Boolean {
         ensureChannel(context)
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return
+        ) return false
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
 
         val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY)
             .setLabel(context.getString(R.string.reply_label))
@@ -81,6 +82,7 @@ object NotificationHelper {
             .build()
 
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+        return true
     }
 
     fun showProcessing(context: Context, questionPreview: String) {
